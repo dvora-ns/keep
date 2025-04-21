@@ -39,7 +39,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, PendingRollbackError
 from sqlalchemy.orm import joinedload, subqueryload, foreign
 from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.sql import exists, expression
@@ -1400,20 +1400,19 @@ def get_enrichment_with_session(session, tenant_id, fingerprint, refresh=False):
 
         return alert_enrichment
 
-    except Exception as e:
-        if "PendingRollbackError" in str(e):
-            logger.warning(
-                "Session has pending rollback, attempting recovery",
-                extra={"tenant_id": tenant_id, "fingerprint": fingerprint},
-            )
-            session.rollback()
-            raise  # This will trigger a retry
-        else:
-            logger.exception(
-                "Unexpected error getting enrichment",
-                extra={"tenant_id": tenant_id, "fingerprint": fingerprint},
-            )
-            raise  # This will trigger a retry
+    except PendingRollbackError:
+        logger.warning(
+            "Session has pending rollback, attempting recovery",
+            extra={"tenant_id": tenant_id, "fingerprint": fingerprint},
+        )
+        session.rollback()
+        raise  # This will trigger a retry
+    except Exception:
+        logger.exception(
+            "Unexpected error getting enrichment",
+            extra={"tenant_id": tenant_id, "fingerprint": fingerprint},
+        )
+        raise  # This will trigger a retry
 
 
 def get_enrichments(
